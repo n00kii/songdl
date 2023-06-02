@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use crate::{app::App, song::Origin};
 use egui::{
-    CentralPanel, Color32, Context, FontId, Label, Layout, Rect, RichText, Rounding, Sense,
-    SidePanel, Spinner, Stroke, TextEdit, TopBottomPanel, Ui, Vec2, WidgetText,
+    CentralPanel, Color32, Context, Label, Layout, Rect, RichText, Rounding, Sense, Spinner,
+    Stroke, TextEdit, TopBottomPanel, Ui, Vec2,
 };
 use egui_extras::{Column, Size, StripBuilder, TableBuilder};
 
@@ -55,26 +55,34 @@ fn draw_nav_panel(app: &mut App, ctx: &Context) {
 }
 
 fn settings(app: &mut App, ui: &mut Ui) {
-    TableBuilder::new(ui).striped(true).column(Column::auto()).column(Column::remainder()).header(iconst!(DETAILS_ROW_HEIGHT), |mut row| {
-        row.col(|ui| {ui.label("field");});
-        row.col(|ui| {ui.label("data");});
-    }).body(|mut body| {
-        body.row(iconst!(DETAILS_ROW_HEIGHT), |mut row|
-        {
-            let mut save_path = PathBuf::from(&app.settings.default_save_directory);
+    TableBuilder::new(ui)
+        .striped(true)
+        .column(Column::auto())
+        .column(Column::remainder())
+        .header(iconst!(DETAILS_ROW_HEIGHT), |mut row| {
             row.col(|ui| {
-                ui.label("default save directory");
+                ui.label("field");
             });
             row.col(|ui| {
-                ui.vertical_centered_justified(|ui| {
-                    if path_edit(ui, &mut save_path).changed() {
-                        app.settings.default_save_directory = pathbuf_to_string(&save_path);
-                        app.read_config();
-                    }
-                });
+                ui.label("data");
             });
         })
-    });
+        .body(|mut body| {
+            body.row(iconst!(DETAILS_ROW_HEIGHT), |mut row| {
+                let mut save_path = PathBuf::from(&app.settings.default_save_directory);
+                row.col(|ui| {
+                    ui.label("default save directory");
+                });
+                row.col(|ui| {
+                    ui.vertical_centered_justified(|ui| {
+                        if path_edit(ui, &mut save_path).changed() {
+                            app.settings.default_save_directory = pathbuf_to_string(&save_path);
+                            app.read_config();
+                        }
+                    });
+                });
+            })
+        });
 }
 
 fn downloader(app: &mut App, ui: &mut Ui) {
@@ -83,10 +91,12 @@ fn downloader(app: &mut App, ui: &mut Ui) {
         let tedit_response = TextEdit::singleline(&mut app.downloader_state.song.source_url)
             .hint_text("enter query url...")
             .horizontal_align(egui::Align::Center)
-            .show(ui).response;
+            .show(ui)
+            .response;
 
         if !app.is_song_loading() && tedit_response.changed() {
-            app.downloader_state.song_origin = Origin::from_link(&app.downloader_state.song.source_url);
+            app.downloader_state.song_origin =
+                Origin::from_link(&app.downloader_state.song.source_url);
         }
 
         if ui.button("query").clicked() {
@@ -141,7 +151,7 @@ fn downloader(app: &mut App, ui: &mut Ui) {
                         );
                     }
                 });
-                
+
                 strip.cell(|ui| {
                     ui.vertical_centered_justified(|ui| {
                     ui.group(|ui| {

@@ -5,26 +5,17 @@ use crate::{
 };
 use anyhow::{bail, Result};
 use eframe::{self, CreationContext};
-use egui::{
-    vec2, CentralPanel, ColorImage, Context, FontData, FontFamily, SidePanel, TextureHandle,
-    TextureId, TextureOptions,
-};
+use egui::{ColorImage, Context, FontData, FontFamily, TextureHandle, TextureOptions};
 use egui_notify::{ToastOptions, ToastUpdate, Toasts};
 use figment::{
-    providers::{Format, Serialized, Toml},
+    providers::{Format, Serialized},
     Figment,
 };
 use image::imageops;
 use poll_promise::Promise;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{
-    fs,
-    io::{BufReader, BufWriter, Cursor, IoSlice, Read, Write},
-    path::PathBuf,
-    process::{Child, Command, Stdio},
-    thread,
-};
+use std::{fs, io::Write, path::PathBuf, process::Command};
 
 use crate::song::Origin;
 use tempfile::NamedTempFile;
@@ -285,13 +276,7 @@ impl App {
 
                 toast.send(ToastUpdate::caption("converting audio..."))?;
                 let conversion_output = Command::new(FFMPEG_COMMAND)
-                    .args([
-                        "-i",
-                        &audio_tfilepath,
-                        "-f",
-                        FFMPEG_AUDIO_FORMAT,
-                        "-"
-                    ])
+                    .args(["-i", &audio_tfilepath, "-f", FFMPEG_AUDIO_FORMAT, "-"])
                     .output()?;
 
                 if conversion_output.stdout.is_empty() {

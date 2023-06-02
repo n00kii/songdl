@@ -1,20 +1,20 @@
-use std::{io::Read, path::PathBuf, process::Command, fmt::Display};
+use std::{fmt::Display, io::Read, path::PathBuf, process::Command};
 
 use anyhow::Result;
 use egui::TextureHandle;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::app::{
-    tempfile, FFMPEG_AUDIO_FORMAT, FFMPEG_AUDIO_FORMAT_EXT, FFMPEG_COMMAND, json_read,
+    json_read, tempfile, FFMPEG_AUDIO_FORMAT, FFMPEG_AUDIO_FORMAT_EXT, FFMPEG_COMMAND,
 };
 
 #[derive(Default, Clone, Copy)]
 pub enum Origin {
     YouTube,
     Soundcloud,
-    
+
     #[default]
-    Unknown
+    Unknown,
 }
 
 impl Origin {
@@ -22,13 +22,12 @@ impl Origin {
         match self {
             Self::YouTube => "youtube.",
             Self::Soundcloud => "soundcloud.",
-            Self::Unknown => ""
+            Self::Unknown => "",
         }
     }
     pub fn from_link(link: &String) -> Self {
-        let contains_origin= |origin: Origin| -> bool {
-            link.find(&origin.link_component()).is_some()
-        };
+        let contains_origin =
+            |origin: Origin| -> bool { link.find(&origin.link_component()).is_some() };
 
         if contains_origin(Origin::YouTube) {
             Origin::YouTube
@@ -98,9 +97,7 @@ impl Song {
 
             let json = Value::Object(json);
 
-            let json_read = |field: &str| {
-                json_read(&json, field)
-            };
+            let json_read = |field: &str| json_read(&json, field);
 
             self.title = json_read("title");
             self.artist = json_read("uploader");
