@@ -1,12 +1,54 @@
-use std::{io::Read, path::PathBuf, process::Command};
+use std::{io::Read, path::PathBuf, process::Command, fmt::Display};
 
 use anyhow::Result;
 use egui::TextureHandle;
 use serde_json::{json, Value};
 
 use crate::app::{
-    dbg_print_stderr, tempfile, FFMPEG_AUDIO_FORMAT, FFMPEG_AUDIO_FORMAT_EXT, FFMPEG_COMMAND,
+    tempfile, FFMPEG_AUDIO_FORMAT, FFMPEG_AUDIO_FORMAT_EXT, FFMPEG_COMMAND, json_read,
 };
+
+#[derive(Default, Clone, Copy)]
+pub enum Origin {
+    YouTube,
+    Soundcloud,
+    
+    #[default]
+    Unknown
+}
+
+impl Origin {
+    fn link_component(&self) -> &str {
+        match self {
+            Self::YouTube => "youtube.",
+            Self::Soundcloud => "soundcloud.",
+            Self::Unknown => ""
+        }
+    }
+    pub fn from_link(link: &String) -> Self {
+        let contains_origin= |origin: Origin| -> bool {
+            link.find(&origin.link_component()).is_some()
+        };
+
+        if contains_origin(Origin::YouTube) {
+            Origin::YouTube
+        } else if contains_origin(Origin::Soundcloud) {
+            Origin::Soundcloud
+        } else {
+            Origin::Unknown
+        }
+    }
+}
+
+impl Display for Origin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::YouTube => write!(f, "{}", egui_phosphor::YOUTUBE_LOGO),
+            Self::Soundcloud => write!(f, "{}", egui_phosphor::SOUNDCLOUD_LOGO),
+            Self::Unknown => write!(f, "?"),
+        }
+    }
+}
 
 #[derive(Default, Clone)]
 pub struct Song {
@@ -19,7 +61,7 @@ pub struct Song {
     pub audio_bytes: Vec<u8>,
     pub cover_bytes: Vec<u8>,
 
-    pub source: String,
+    pub source_url: String,
 
     pub cover_texture_handle: Option<TextureHandle>,
 }
@@ -39,14 +81,30 @@ impl Song {
         ]
     }
     pub fn update_metadata_from_json(&mut self, json: Value) {
-        let unwrap = |field: &str| {
-            json.get(field)
-                .unwrap_or(&json!(""))
-                .to_string()
-                .replace("\"", "")
-        };
-        self.title = unwrap("title");
-        self.artist = unwrap("uploader");
+        if let serde_json::Value::Object(mut json) = json {
+            [
+                "requested_formats",
+                "thumbnails",
+                "url",
+                "urls",
+                "fragments",
+                "formats",
+                "automatic_captions",
+            ]
+            .into_iter()
+            .for_each(|f| {
+                json.remove(f);
+            });
+
+            let json = Value::Object(json);
+
+            let json_read = |field: &str| {
+                json_read(&json, field)
+            };
+
+            self.title = json_read("title");
+            self.artist = json_read("uploader");
+        }
     }
     pub fn write_to_disk(&self, save_path: &PathBuf) -> Result<()> {
         let filename = format!("{}_{}{}", self.title, self.artist, FFMPEG_AUDIO_FORMAT_EXT)

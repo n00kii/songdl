@@ -5,7 +5,7 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
+[dependencies]  
 anyhow = "1.0.71"
 crossbeam-channel = "0.5.8"
 eframe = "0.22.0"
@@ -19,4 +19,7 @@ poll-promise = "0.2.0"
 rfd = "0.11.4"
 serde_json = "1.0.96"
 tempfile = "3.5.0"
-egui-notify = { path = "F:/Media/Documents/Projects/egui-notify" }
+egui-notify = { git = "https://github.com/n00kii/songdl" }
+serde = "1.0.163"
+figment = { version = "0.10.9", features = [ "toml" ] }
+toml = "0.7.4"

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::app::App;
+use crate::{app::App, song::Origin};
 use egui::{
     CentralPanel, Color32, Context, FontId, Label, Layout, Rect, RichText, Rounding, Sense,
     SidePanel, Spinner, Stroke, TextEdit, TopBottomPanel, Ui, Vec2, WidgetText,
@@ -24,7 +24,7 @@ macro_rules! label {
 pub enum InterfacePage {
     #[default]
     Downloader,
-    History,
+    // History,
     Settings,
 }
 
@@ -32,7 +32,7 @@ fn spacer(ui: &mut Ui) {
     ui.add_space(iconst!(SPACER_SIZE))
 }
 
-pub fn draw_side_panel(app: &mut App, ctx: &Context) {
+fn draw_nav_panel(app: &mut App, ctx: &Context) {
     TopBottomPanel::new(egui::panel::TopBottomSide::Top, "page_panel").show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.selectable_value(
@@ -40,11 +40,11 @@ pub fn draw_side_panel(app: &mut App, ctx: &Context) {
                 InterfacePage::Downloader,
                 label!("download", DOWNLOADER_ICON),
             );
-            ui.selectable_value(
-                &mut app.current_page,
-                InterfacePage::History,
-                label!("history", HISTORY_ICON),
-            );
+            // ui.selectable_value(
+            //     &mut app.current_page,
+            //     InterfacePage::History,
+            //     label!("history", HISTORY_ICON),
+            // );
             ui.selectable_value(
                 &mut app.current_page,
                 InterfacePage::Settings,
@@ -54,13 +54,40 @@ pub fn draw_side_panel(app: &mut App, ctx: &Context) {
     });
 }
 
-pub fn downloader(app: &mut App, ui: &mut Ui) {
+fn settings(app: &mut App, ui: &mut Ui) {
+    TableBuilder::new(ui).striped(true).column(Column::auto()).column(Column::remainder()).header(iconst!(DETAILS_ROW_HEIGHT), |mut row| {
+        row.col(|ui| {ui.label("field");});
+        row.col(|ui| {ui.label("data");});
+    }).body(|mut body| {
+        body.row(iconst!(DETAILS_ROW_HEIGHT), |mut row|
+        {
+            let mut save_path = PathBuf::from(&app.settings.default_save_directory);
+            row.col(|ui| {
+                ui.label("default save directory");
+            });
+            row.col(|ui| {
+                ui.vertical_centered_justified(|ui| {
+                    if path_edit(ui, &mut save_path).changed() {
+                        app.settings.default_save_directory = pathbuf_to_string(&save_path);
+                        app.read_config();
+                    }
+                });
+            });
+        })
+    });
+}
+
+fn downloader(app: &mut App, ui: &mut Ui) {
     ui.vertical_centered_justified(|ui| {
         spacer(ui);
-        TextEdit::singleline(&mut app.downloader_state.song.source)
+        let tedit_response = TextEdit::singleline(&mut app.downloader_state.song.source_url)
             .hint_text("enter query url...")
             .horizontal_align(egui::Align::Center)
-            .show(ui);
+            .show(ui).response;
+
+        if !app.is_song_loading() && tedit_response.changed() {
+            app.downloader_state.song_origin = Origin::from_link(&app.downloader_state.song.source_url);
+        }
 
         if ui.button("query").clicked() {
             app.query(ui.ctx())
@@ -102,7 +129,7 @@ pub fn downloader(app: &mut App, ui: &mut Ui) {
                     } else {
                         let unk_cover_resp = ui.add_sized(
                             image_size,
-                            Label::new(RichText::new("?").size(iconst!(COVER_SIZE) * 0.15))
+                            Label::new(RichText::new(app.downloader_state.song_origin.to_string()).size(iconst!(COVER_SIZE) * 0.15))
                                 .sense(Sense::click()),
                         );
 
@@ -118,6 +145,8 @@ pub fn downloader(app: &mut App, ui: &mut Ui) {
                 strip.cell(|ui| {
                     ui.vertical_centered_justified(|ui| {
                     ui.group(|ui| {
+                        ui.label("details");
+                        ui.separator();
                         TableBuilder::new(ui)
                         .auto_shrink([false, true])
                             .striped(true)
@@ -174,13 +203,13 @@ pub fn downloader(app: &mut App, ui: &mut Ui) {
                             });
 
                         });
-                        spacer(ui);
-                        spacer(ui);
+                        ui.add_space(iconst!(SPACER_SIZE) * 5.);
                         ui.group(|ui| {
-                            spacer(ui);
+                            ui.label("save directory");
+                            ui.separator();
                             path_edit(ui, &mut app.downloader_state.save_path);
                             ui.add_enabled_ui(app.downloader_state.save_path.exists(), |ui| {
-                                if ui.button("save").clicked() {
+                                if ui.button("write").clicked() {
                                     app.save();
                                 }
                             });
@@ -198,15 +227,16 @@ pub fn downloader(app: &mut App, ui: &mut Ui) {
     }
 }
 
-fn path_edit(ui: &mut Ui, path: &mut PathBuf) {
-    // let tedit_resp = ui.add(
-    // [ui.available_width(), iconst!(DETAILS_ROW_HEIGHT)],
-    let tedit_response = TextEdit::singleline(&mut path.as_path().to_string_lossy().to_string())
+fn pathbuf_to_string(path: &PathBuf) -> String {
+    path.as_path().to_string_lossy().to_string()
+}
+
+fn path_edit(ui: &mut Ui, path: &mut PathBuf) -> egui::Response {
+    let mut tedit_response = TextEdit::singleline(&mut pathbuf_to_string(path))
         .hint_text("click to set path")
         .interactive(false)
         .show(ui)
         .response;
-    // );
 
     if ui
         .interact(
@@ -218,18 +248,18 @@ fn path_edit(ui: &mut Ui, path: &mut PathBuf) {
     {
         if let Some(path_buf) = rfd::FileDialog::new().pick_folder() {
             *path = path_buf;
+            tedit_response.mark_changed()
         }
     }
+    tedit_response
 }
 
 pub fn root(app: &mut App, ctx: &Context) {
-    draw_side_panel(app, ctx);
+    draw_nav_panel(app, ctx);
 
     CentralPanel::default().show(ctx, |ui| match app.current_page {
         InterfacePage::Downloader => downloader(app, ui),
-        _ => {
-            ui.label("not done yet");
-        }
+        InterfacePage::Settings => settings(app, ui),
     });
 }
 
@@ -238,7 +268,7 @@ pub mod constants {
 
     pub const SPACER_SIZE: f32 = 5.;
     pub const DOWNLOADER_ICON: &str = "📥";
-    pub const HISTORY_ICON: &str = egui_phosphor::BOOK_OPEN_TEXT;
+    // pub const HISTORY_ICON: &str = egui_phosphor::BOOK_OPEN_TEXT;
     pub const SETTINGS_ICON: &str = "⛭";
     pub const DETAILS_ROW_HEIGHT: f32 = 20.;
     pub const DETAILS_LABEL_COLUMN_SIZE: f32 = 100.;
