@@ -15,7 +15,7 @@ use image::imageops;
 use poll_promise::Promise;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{fs, io::Write, path::PathBuf, process::Command};
+use std::{fs, io::Write, os::windows::process::CommandExt, path::PathBuf, process::Command};
 
 use crate::song::Origin;
 use tempfile::NamedTempFile;
@@ -29,6 +29,7 @@ pub struct App {
     pub downloader_state: DownloaderState,
 }
 
+pub const WIN_FLAG_CREATE_NO_WINDOW: u32 = 0x08000000;
 pub const FFMPEG_AUDIO_FORMAT: &str = "mp3";
 pub const FFMPEG_AUDIO_FORMAT_EXT: &str = ".mp3";
 pub const YT_DL_COMMAND: &str = "yt-dlp";
@@ -267,6 +268,7 @@ impl App {
                         "-",
                         &query_url,
                     ])
+                    .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
                     .output()?;
 
                 if audio_output.stdout.is_empty() {
@@ -277,6 +279,7 @@ impl App {
                 toast.send(ToastUpdate::caption("converting audio..."))?;
                 let conversion_output = Command::new(FFMPEG_COMMAND)
                     .args(["-i", &audio_tfilepath, "-f", FFMPEG_AUDIO_FORMAT, "-"])
+                    .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
                     .output()?;
 
                 if conversion_output.stdout.is_empty() {
@@ -288,6 +291,7 @@ impl App {
                 toast.send(ToastUpdate::caption("downloading thumbnail..."))?;
                 let image_output = Command::new("curl")
                     .args([&json_read(&details_json, "thumbnail"), "-o", "-"])
+                    .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
                     .output()?;
 
                 toast.send(ToastUpdate::caption("parsing metadata..."))?;

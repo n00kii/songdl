@@ -1,4 +1,6 @@
-use std::{fmt::Display, io::Read, path::PathBuf, process::Command};
+use std::{
+    fmt::Display, io::Read, os::windows::process::CommandExt, path::PathBuf, process::Command,
+};
 
 use anyhow::Result;
 use egui::TextureHandle;
@@ -6,6 +8,7 @@ use serde_json::Value;
 
 use crate::app::{
     json_read, tempfile, FFMPEG_AUDIO_FORMAT, FFMPEG_AUDIO_FORMAT_EXT, FFMPEG_COMMAND,
+    WIN_FLAG_CREATE_NO_WINDOW,
 };
 
 #[derive(Default, Clone, Copy)]
@@ -153,6 +156,7 @@ impl Song {
                 audio_tfilepath,
                 self.generate_metadata_tuples(),
             ))
+            .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
             .output()?;
 
         let (_cover_tfile, cover_tfilepath) = tempfile(&self.cover_bytes)?;
@@ -180,6 +184,7 @@ impl Song {
                 FFMPEG_AUDIO_FORMAT,
                 &fin_audio_tfilepath,
             ])
+            .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
             .output()?;
 
         self.audio_bytes.clear();
