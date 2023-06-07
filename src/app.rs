@@ -1,8 +1,10 @@
 use crate::{
+    command::{download_audio, convert_audio, download_thumbnail},
     iconst,
     interface::{self, InterfacePage},
     song::Song,
 };
+
 use anyhow::{bail, Result};
 use eframe::{self, CreationContext};
 use egui::{ColorImage, Context, FontData, FontFamily, TextureHandle, TextureOptions};
@@ -11,11 +13,18 @@ use figment::{
     providers::{Format, Serialized},
     Figment,
 };
-use image::imageops;
+
+use image::{imageops, DynamicImage};
 use poll_promise::Promise;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{fs, io::Write, os::windows::process::CommandExt, path::PathBuf, process::Command};
+use std::{
+    fs,
+    io::{BufWriter, Cursor, Write},
+    os::windows::process::CommandExt,
+    path::PathBuf,
+    process::Command,
+};
 
 use crate::song::Origin;
 use tempfile::NamedTempFile;
@@ -27,13 +36,10 @@ pub struct App {
 
     pub settings: Settings,
     pub downloader_state: DownloaderState,
+
+    pub test_program: String,
 }
 
-pub const WIN_FLAG_CREATE_NO_WINDOW: u32 = 0x08000000;
-pub const FFMPEG_AUDIO_FORMAT: &str = "mp3";
-pub const FFMPEG_AUDIO_FORMAT_EXT: &str = ".mp3";
-pub const YT_DL_COMMAND: &str = "yt-dlp";
-pub const FFMPEG_COMMAND: &str = "ffmpeg";
 pub const SETTINGS_FILENAME: &str = "settings.toml";
 
 #[derive(Default)]
@@ -68,9 +74,14 @@ impl<T: Send> Ready for Option<Promise<T>> {
     }
 }
 
+
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Settings {
-    pub default_save_directory: String,
+    pub default_save_directory: Option<String>,
+
+    pub ffmpeg_path: Option<String>,
+    pub ytdl_path: Option<String>,
 }
 
 fn init_settings() -> Result<Settings> {
@@ -169,11 +180,10 @@ pub fn init() {
     );
 }
 
-fn load_egui_image(ctx: &Context, name: &str, image_bytes: &[u8]) -> Result<TextureHandle> {
-    let image = image::load_from_memory(&image_bytes)?;
+fn load_egui_image(ctx: &Context, name: &str, image: &DynamicImage) -> Result<TextureHandle> {
     let (w, h) = (image.width(), image.height());
     let image_cropped = imageops::crop_imm(
-        &image,
+        image,
         if h > w { 0 } else { (w - h) / 2 },
         if w > h { 0 } else { (h - w) / 2 },
         if h > w { w } else { h },
@@ -205,14 +215,16 @@ impl App {
                 Ok(loaded_song) => {
                     self.downloader_state.song = loaded_song;
                 }
-                Err(_error) => {
-                    // dbg!(error);
+                Err(error) => {
+                    self.toasts.error(format!("failed to load song: {error}"));
                 }
             }
         }
     }
     pub fn read_config(&mut self) {
-        self.downloader_state.save_path = PathBuf::from(&self.settings.default_save_directory);
+        if let Some(default_save_directory) = self.settings.default_save_directory.as_ref() {
+            self.downloader_state.save_path = PathBuf::from(default_save_directory);
+        }
     }
     pub fn is_song_loaded(&self) -> bool {
         !self.downloader_state.song.audio_bytes.is_empty()
@@ -248,69 +260,51 @@ impl App {
         }));
     }
     pub fn query(&mut self, ctx: &Context) {
-        let query_url = self.downloader_state.song.source_url.clone();
-        let toast = self.toasts.info("initializing...").create_channel();
         let ctx_clone = ctx.clone();
+        let query_url = self.downloader_state.song.source_url.clone();
+        let song_origin = self.downloader_state.song_origin;
+        let toast = self.toasts.info("initializing...").create_channel();
         self.downloader_state.loading_song = Some(Promise::spawn_thread("query_song", move || {
             let mut song: Song = Song::default();
             if let Err(error) = (|| {
-                toast.send(ToastUpdate::caption("downloading audio..."))?;
-                let audio_output = Command::new(YT_DL_COMMAND)
-                    .args([
-                        "-j",
-                        "-f",
-                        "bestaudio",
-                        "--no-playlist",
-                        "--no-simulate",
-                        "--ignore-config",
-                        "--no-warnings",
-                        "-o",
-                        "-",
-                        &query_url,
-                    ])
-                    .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
-                    .output()?;
+                if song_origin == Origin::Local {
 
-                if audio_output.stdout.is_empty() {
-                    bail!("download error")
+                } else {
+                    toast.send(ToastUpdate::caption("downloading audio..."))?;
+                    let (audio_bytes, audio_details) = download_audio(&query_url)?;
+    
+                    if audio_bytes.is_empty() {
+                        bail!("download error")
+                    }
+    
+                    toast.send(ToastUpdate::caption("converting audio..."))?;
+                    let converted_audio_bytes = convert_audio(&audio_bytes)?;
+    
+                    if converted_audio_bytes.is_empty() {
+                        bail!("audio conversion error")
+                    }
+    
+                    toast.send(ToastUpdate::caption("downloading thumbnail..."))?;
+                    let image_output = download_thumbnail(&json_read(&audio_details, "thumbnail"))?;
+    
+                    toast.send(ToastUpdate::caption("parsing metadata..."))?;
+                    song.update_metadata_from_json(audio_details);
+    
+                    let mut cover_bytes = vec![];
+    
+                    toast.send(ToastUpdate::caption("loading cover..."))?;
+                    if !image_output.stdout.is_empty() {
+                        let image = image::load_from_memory(&image_output.stdout)?;
+                        let cover_texture_handle = load_egui_image(&ctx_clone, &song.title, &image)?;
+                        image.write_to(&mut Cursor::new(&mut cover_bytes), image::ImageFormat::Jpeg)?;
+                        song.cover_texture_handle = Some(cover_texture_handle);
+                    }
+                    
+                    song.cover_bytes = cover_bytes;
+                    song.audio_bytes = converted_audio_bytes;
+                    song.source_url = query_url.clone();
                 }
-                let (_audio_tfile, audio_tfilepath) = tempfile(&audio_output.stdout)?;
-
-                toast.send(ToastUpdate::caption("converting audio..."))?;
-                let conversion_output = Command::new(FFMPEG_COMMAND)
-                    .args(["-i", &audio_tfilepath, "-f", FFMPEG_AUDIO_FORMAT, "-"])
-                    .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
-                    .output()?;
-
-                if conversion_output.stdout.is_empty() {
-                    bail!("conversion error")
-                }
-
-                let details_json: Value = serde_json::from_slice(&audio_output.stderr)?;
-
-                toast.send(ToastUpdate::caption("downloading thumbnail..."))?;
-                let image_output = Command::new("curl")
-                    .args([&json_read(&details_json, "thumbnail"), "-o", "-"])
-                    .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
-                    .output()?;
-
-                toast.send(ToastUpdate::caption("parsing metadata..."))?;
-                song.update_metadata_from_json(details_json);
-
-                let audio_bytes = conversion_output.stdout;
-                let cover_bytes = image_output.stdout;
-
-                toast.send(ToastUpdate::caption("loading cover..."))?;
-                if !cover_bytes.is_empty() {
-                    let cover_texture_handle =
-                        load_egui_image(&ctx_clone, &song.title, &cover_bytes)?;
-                    song.cover_texture_handle = Some(cover_texture_handle);
-                }
-
-                song.cover_bytes = cover_bytes;
-                song.audio_bytes = audio_bytes;
-                song.source_url = query_url.clone();
-
+                
                 anyhow::Ok(())
             })() {
                 toast.send(

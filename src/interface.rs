@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{app::App, song::Origin};
+use crate::{app::App, command::check_if_exists, song::Origin};
 use egui::{
     CentralPanel, Color32, Context, Label, Layout, Rect, RichText, Rounding, Sense, Spinner,
     Stroke, TextEdit, TopBottomPanel, Ui, Vec2,
@@ -24,7 +24,6 @@ macro_rules! label {
 pub enum InterfacePage {
     #[default]
     Downloader,
-    // History,
     Settings,
 }
 
@@ -40,11 +39,6 @@ fn draw_nav_panel(app: &mut App, ctx: &Context) {
                 InterfacePage::Downloader,
                 label!("download", DOWNLOADER_ICON),
             );
-            // ui.selectable_value(
-            //     &mut app.current_page,
-            //     InterfacePage::History,
-            //     label!("history", HISTORY_ICON),
-            // );
             ui.selectable_value(
                 &mut app.current_page,
                 InterfacePage::Settings,
@@ -57,7 +51,7 @@ fn draw_nav_panel(app: &mut App, ctx: &Context) {
 fn settings(app: &mut App, ui: &mut Ui) {
     TableBuilder::new(ui)
         .striped(true)
-        .column(Column::auto())
+        .column(Column::exact(150.))
         .column(Column::remainder())
         .header(iconst!(DETAILS_ROW_HEIGHT), |mut row| {
             row.col(|ui| {
@@ -68,20 +62,63 @@ fn settings(app: &mut App, ui: &mut Ui) {
             });
         })
         .body(|mut body| {
-            body.row(iconst!(DETAILS_ROW_HEIGHT), |mut row| {
-                let mut save_path = PathBuf::from(&app.settings.default_save_directory);
-                row.col(|ui| {
-                    ui.label("default save directory");
-                });
-                row.col(|ui| {
-                    ui.vertical_centered_justified(|ui| {
-                        if path_edit(ui, &mut save_path).changed() {
-                            app.settings.default_save_directory = pathbuf_to_string(&save_path);
-                            app.read_config();
-                        }
+            let mut updated = false;
+            let mut row = |label: &str, field_opt: &mut Option<String>, is_file: bool| {
+                body.row(iconst!(DETAILS_ROW_HEIGHT), |mut row| {
+                    let mut dummy_string = String::new();
+                    let mut field_enabled = field_opt.is_some();
+                    let mut action = None;
+                    let field = field_opt.as_mut().unwrap_or(&mut dummy_string);
+                    
+                    let mut path = PathBuf::from(&field);
+
+                    row.col(|ui| {
+                        ui.horizontal(|ui| {
+                            if ui.checkbox(&mut field_enabled, "").clicked() {
+                                if field_enabled {
+                                    action = Some(false);
+                                } else {
+                                    action = Some(true);
+                                }
+                            }
+                            ui.add_enabled_ui(field_enabled, |ui| {
+                                ui.label(label);
+                            });
+                        });
                     });
+                    row.col(|ui| {
+                        ui.add_enabled_ui(field_enabled, |ui| {
+                            ui.vertical_centered_justified(|ui| {
+                                if path_edit(ui, &mut path, is_file).changed() {
+                                    *field = pathbuf_to_string(&path);
+                                    updated = true;
+                                }
+                            });
+                        });
+                    });
+
+                    if let Some(action) = action {
+                        if action {
+                            *field_opt = None;
+                        } else {
+                            *field_opt = Some(String::new());
+                        }
+                    }
                 });
-            })
+            };
+
+            row(
+                "default save directory",
+                &mut app.settings.default_save_directory,
+                false,
+            );
+            row("ffmpeg location", &mut app.settings.ffmpeg_path, true);
+            row("yt-dl location", &mut app.settings.ytdl_path, true);
+
+            if updated {
+                app.read_config();
+            }
+
         });
 }
 
@@ -217,7 +254,7 @@ fn downloader(app: &mut App, ui: &mut Ui) {
                         ui.group(|ui| {
                             ui.label("save directory");
                             ui.separator();
-                            path_edit(ui, &mut app.downloader_state.save_path);
+                            path_edit(ui, &mut app.downloader_state.save_path, false);
                             ui.add_enabled_ui(app.downloader_state.save_path.exists(), |ui| {
                                 if ui.button("write").clicked() {
                                     app.save();
@@ -241,7 +278,7 @@ fn pathbuf_to_string(path: &PathBuf) -> String {
     path.as_path().to_string_lossy().to_string()
 }
 
-fn path_edit(ui: &mut Ui, path: &mut PathBuf) -> egui::Response {
+fn path_edit(ui: &mut Ui, path: &mut PathBuf, is_file: bool) -> egui::Response {
     let mut tedit_response = TextEdit::singleline(&mut pathbuf_to_string(path))
         .hint_text("click to set path")
         .interactive(false)
@@ -256,7 +293,11 @@ fn path_edit(ui: &mut Ui, path: &mut PathBuf) -> egui::Response {
         )
         .clicked()
     {
-        if let Some(path_buf) = rfd::FileDialog::new().pick_folder() {
+        if let Some(path_buf) = if is_file {
+            rfd::FileDialog::new().pick_file()
+        } else {
+            rfd::FileDialog::new().pick_folder()
+        } {
             *path = path_buf;
             tedit_response.mark_changed()
         }
@@ -278,7 +319,6 @@ pub mod constants {
 
     pub const SPACER_SIZE: f32 = 5.;
     pub const DOWNLOADER_ICON: &str = "📥";
-    // pub const HISTORY_ICON: &str = egui_phosphor::BOOK_OPEN_TEXT;
     pub const SETTINGS_ICON: &str = "⛭";
     pub const DETAILS_ROW_HEIGHT: f32 = 20.;
     pub const DETAILS_LABEL_COLUMN_SIZE: f32 = 100.;

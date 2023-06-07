@@ -6,15 +6,15 @@ use anyhow::Result;
 use egui::TextureHandle;
 use serde_json::Value;
 
-use crate::app::{
-    json_read, tempfile, FFMPEG_AUDIO_FORMAT, FFMPEG_AUDIO_FORMAT_EXT, FFMPEG_COMMAND,
-    WIN_FLAG_CREATE_NO_WINDOW,
-};
+use crate::{app::{
+    json_read, tempfile,
+}, command::{write_metadata_to_audio, write_cover_to_audio, FFMPEG_AUDIO_FORMAT_EXT}};
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, PartialEq)]
 pub enum Origin {
     YouTube,
     Soundcloud,
+    Local,
 
     #[default]
     Unknown,
@@ -25,7 +25,7 @@ impl Origin {
         match self {
             Self::YouTube => "youtube.",
             Self::Soundcloud => "soundcloud.",
-            Self::Unknown => "",
+            _ => "",
         }
     }
     pub fn from_link(link: &String) -> Self {
@@ -36,6 +36,8 @@ impl Origin {
             Origin::YouTube
         } else if contains_origin(Origin::Soundcloud) {
             Origin::Soundcloud
+        } else if PathBuf::from(link).exists() {
+            Origin::Local
         } else {
             Origin::Unknown
         }
@@ -47,7 +49,8 @@ impl Display for Origin {
         match self {
             Self::YouTube => write!(f, "{}", egui_phosphor::YOUTUBE_LOGO),
             Self::Soundcloud => write!(f, "{}", egui_phosphor::SOUNDCLOUD_LOGO),
-            Self::Unknown => write!(f, "?"),
+            Self::Local => write!(f, "{}", egui_phosphor::FOLDER),
+            _ => write!(f, "?"),
         }
     }
 }
@@ -117,77 +120,10 @@ impl Song {
         Ok(())
     }
     pub fn update_bytes_from_metadata(&mut self) -> Result<()> {
-        fn generate_args_from_metadata(
-            filepath: String,
-            metadata: Vec<(String, String)>,
-        ) -> Vec<String> {
-            let inner_args = metadata
-                .into_iter()
-                .flat_map(|(key, value)| vec!["-metadata".to_string(), format!("{key}={value}")])
-                .collect::<Vec<_>>();
-            vec![
-                String::from("-i"),
-                filepath,
-                // flush current metadata to prevent corruption
-                String::from("-map"),
-                String::from("0:a"),
-                String::from("-map_metadata"),
-                String::from("-1"),
-                // copy stream codec
-                String::from("-c"),
-                String::from("copy"),
-            ]
-            .into_iter()
-            .chain(inner_args.into_iter())
-            .chain(
-                vec![
-                    String::from("-f"),
-                    String::from(FFMPEG_AUDIO_FORMAT),
-                    String::from("-"),
-                ]
-                .into_iter(),
-            )
-            .collect::<Vec<_>>()
-        }
-        let (_audio_tfile, audio_tfilepath) = tempfile(&self.audio_bytes)?;
-
-        let intermediate_output = Command::new(FFMPEG_COMMAND)
-            .args(generate_args_from_metadata(
-                audio_tfilepath,
-                self.generate_metadata_tuples(),
-            ))
-            .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
-            .output()?;
-
-        let (_cover_tfile, cover_tfilepath) = tempfile(&self.cover_bytes)?;
-        let (_intm_audio_tfile, intm_audio_tfilepath) = tempfile(&intermediate_output.stdout)?;
-        let (mut fin_audio_tfile, fin_audio_tfilepath) = tempfile(&[])?;
-
-        let _finished_output = Command::new(FFMPEG_COMMAND)
-            .args([
-                "-i",
-                &intm_audio_tfilepath,
-                "-i",
-                &cover_tfilepath,
-                "-map",
-                "0:0",
-                "-map",
-                "1:0",
-                "-c",
-                "copy",
-                "-id3v2_version",
-                "3",
-                "-y",
-                "-f",
-                FFMPEG_AUDIO_FORMAT,
-                &fin_audio_tfilepath,
-            ])
-            .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
-            .output()?;
-
-        self.audio_bytes.clear();
-        fin_audio_tfile.read_to_end(&mut self.audio_bytes)?;
-
+        let metadata = self.generate_metadata_tuples();
+        let audio_bytes_with_metadata = write_metadata_to_audio(&self.audio_bytes, metadata)?;
+        let audio_bytes_with_cover = write_cover_to_audio(&audio_bytes_with_metadata, &self.cover_bytes)?;
+        self.audio_bytes = audio_bytes_with_cover;
         Ok(())
     }
 }
