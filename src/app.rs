@@ -36,8 +36,6 @@ pub struct App {
 
     pub settings: Settings,
     pub downloader_state: DownloaderState,
-
-    pub test_program: String,
 }
 
 pub const SETTINGS_FILENAME: &str = "settings.toml";
