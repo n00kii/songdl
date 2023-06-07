@@ -53,13 +53,6 @@ pub fn download_thumbnail(query_url: &String) -> Result<Output> {
         .output()?)
 }
 
-pub fn check_if_exists(application_name: String) -> bool {
-    Command::new(application_name)
-        .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
-        .output()
-        .is_ok()
-}
-
 pub fn write_cover_to_audio(audio_bytes: &[u8], cover_bytes: &[u8]) -> Result<Vec<u8>> {
     let (_cover_tfile, cover_tfilepath) = tempfile(cover_bytes)?;
     let (_audio_tfile, audio_tfilepath) = tempfile(audio_bytes)?;

@@ -1,5 +1,5 @@
 use crate::{
-    command::{download_audio, convert_audio, download_thumbnail},
+    command::{convert_audio, download_audio, download_thumbnail},
     iconst,
     interface::{self, InterfacePage},
     song::Song,
@@ -20,10 +20,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     fs,
-    io::{BufWriter, Cursor, Write},
-    os::windows::process::CommandExt,
+    io::{Cursor, Write},
     path::PathBuf,
-    process::Command,
 };
 
 use crate::song::Origin;
@@ -71,8 +69,6 @@ impl<T: Send> Ready for Option<Promise<T>> {
         }
     }
 }
-
-
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Settings {
@@ -266,43 +262,46 @@ impl App {
             let mut song: Song = Song::default();
             if let Err(error) = (|| {
                 if song_origin == Origin::Local {
-
                 } else {
                     toast.send(ToastUpdate::caption("downloading audio..."))?;
                     let (audio_bytes, audio_details) = download_audio(&query_url)?;
-    
+
                     if audio_bytes.is_empty() {
                         bail!("download error")
                     }
-    
+
                     toast.send(ToastUpdate::caption("converting audio..."))?;
                     let converted_audio_bytes = convert_audio(&audio_bytes)?;
-    
+
                     if converted_audio_bytes.is_empty() {
                         bail!("audio conversion error")
                     }
-    
+
                     toast.send(ToastUpdate::caption("downloading thumbnail..."))?;
                     let image_output = download_thumbnail(&json_read(&audio_details, "thumbnail"))?;
-    
+
                     toast.send(ToastUpdate::caption("parsing metadata..."))?;
                     song.update_metadata_from_json(audio_details);
-    
+
                     let mut cover_bytes = vec![];
-    
+
                     toast.send(ToastUpdate::caption("loading cover..."))?;
                     if !image_output.stdout.is_empty() {
                         let image = image::load_from_memory(&image_output.stdout)?;
-                        let cover_texture_handle = load_egui_image(&ctx_clone, &song.title, &image)?;
-                        image.write_to(&mut Cursor::new(&mut cover_bytes), image::ImageFormat::Jpeg)?;
+                        let cover_texture_handle =
+                            load_egui_image(&ctx_clone, &song.title, &image)?;
+                        image.write_to(
+                            &mut Cursor::new(&mut cover_bytes),
+                            image::ImageFormat::Jpeg,
+                        )?;
                         song.cover_texture_handle = Some(cover_texture_handle);
                     }
-                    
+
                     song.cover_bytes = cover_bytes;
                     song.audio_bytes = converted_audio_bytes;
                     song.source_url = query_url.clone();
                 }
-                
+
                 anyhow::Ok(())
             })() {
                 toast.send(

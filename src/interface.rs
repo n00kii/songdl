@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{app::App, command::check_if_exists, song::Origin};
+use crate::{app::App, song::Origin};
 use egui::{
     CentralPanel, Color32, Context, Label, Layout, Rect, RichText, Rounding, Sense, Spinner,
     Stroke, TextEdit, TopBottomPanel, Ui, Vec2,
@@ -69,7 +69,7 @@ fn settings(app: &mut App, ui: &mut Ui) {
                     let mut field_enabled = field_opt.is_some();
                     let mut action = None;
                     let field = field_opt.as_mut().unwrap_or(&mut dummy_string);
-                    
+
                     let mut path = PathBuf::from(&field);
 
                     row.col(|ui| {
@@ -118,7 +118,6 @@ fn settings(app: &mut App, ui: &mut Ui) {
             if updated {
                 app.read_config();
             }
-
         });
 }
 

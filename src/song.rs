@@ -1,14 +1,13 @@
-use std::{
-    fmt::Display, io::Read, os::windows::process::CommandExt, path::PathBuf, process::Command,
-};
+use std::{fmt::Display, path::PathBuf};
 
 use anyhow::Result;
 use egui::TextureHandle;
 use serde_json::Value;
 
-use crate::{app::{
-    json_read, tempfile,
-}, command::{write_metadata_to_audio, write_cover_to_audio, FFMPEG_AUDIO_FORMAT_EXT}};
+use crate::{
+    app::json_read,
+    command::{write_cover_to_audio, write_metadata_to_audio, FFMPEG_AUDIO_FORMAT_EXT},
+};
 
 #[derive(Default, Clone, Copy, PartialEq)]
 pub enum Origin {
@@ -122,7 +121,8 @@ impl Song {
     pub fn update_bytes_from_metadata(&mut self) -> Result<()> {
         let metadata = self.generate_metadata_tuples();
         let audio_bytes_with_metadata = write_metadata_to_audio(&self.audio_bytes, metadata)?;
-        let audio_bytes_with_cover = write_cover_to_audio(&audio_bytes_with_metadata, &self.cover_bytes)?;
+        let audio_bytes_with_cover =
+            write_cover_to_audio(&audio_bytes_with_metadata, &self.cover_bytes)?;
         self.audio_bytes = audio_bytes_with_cover;
         Ok(())
     }
