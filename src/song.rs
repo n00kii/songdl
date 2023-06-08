@@ -109,9 +109,16 @@ impl Song {
         }
     }
     pub fn write_to_disk(&self, save_path: &PathBuf) -> Result<()> {
-        let filename = format!("{}_{}{}", self.title, self.artist, FFMPEG_AUDIO_FORMAT_EXT)
-            .replace(" ", "_")
-            .to_lowercase();
+        let mut filename = format!("{}_{}{}", self.title, self.artist, FFMPEG_AUDIO_FORMAT_EXT)
+            .to_ascii_lowercase()
+            .replace(" ", "_");
+
+        ["/", "*", ":", "?", "\"", "<", ">", "|"]
+            .into_iter()
+            .for_each(|s| {
+                filename = filename.replace(s, "");
+            });
+
         let mut final_save_path = save_path.clone();
 
         final_save_path.push(filename);
