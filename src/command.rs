@@ -1,11 +1,13 @@
 use anyhow::Result;
-use once_cell::{unsync::{OnceCell, Lazy}};
+
 use parking_lot::Mutex;
 use serde_json::Value;
 use std::{
+    collections::HashMap,
     io::Read,
     os::windows::process::CommandExt,
-    process::{Command, Output}, collections::HashMap, cell::RefCell, sync::OnceLock,
+    process::{Command, Output},
+    sync::OnceLock,
 };
 
 use crate::app::tempfile;
@@ -27,7 +29,11 @@ pub const FFMPEG_AUDIO_FORMAT: &str = "mp3";
 pub const FFMPEG_AUDIO_FORMAT_EXT: &str = ".mp3";
 
 pub fn get_command(name: &str) -> String {
-    command_map().lock().get(name).map(|v| String::from(v)).unwrap_or(String::from(name))
+    command_map()
+        .lock()
+        .get(name)
+        .map(|v| String::from(v))
+        .unwrap_or(String::from(name))
 }
 
 pub fn set_command(name: &'static str, value: Option<String>) {
