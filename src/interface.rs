@@ -80,6 +80,7 @@ fn settings(app: &mut App, ui: &mut Ui) {
                                 } else {
                                     action = Some(true);
                                 }
+                                updated = true;
                             }
                             ui.add_enabled_ui(field_enabled, |ui| {
                                 ui.label(label);

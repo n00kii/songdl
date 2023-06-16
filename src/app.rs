@@ -1,5 +1,8 @@
 use crate::{
-    command::{convert_audio, download_audio, download_thumbnail},
+    command::{
+        convert_audio, download_audio, download_thumbnail, set_command, DEFAULT_FFMPEG_COMMAND,
+        DEFAULT_YT_DL_COMMAND,
+    },
     iconst,
     interface::{self, InterfacePage},
     song::Song,
@@ -205,13 +208,8 @@ impl App {
     fn update_state(&mut self) {
         if self.downloader_state.loading_song.is_ready() {
             let loaded_song = self.downloader_state.loading_song.unwrap_and_take();
-            match loaded_song {
-                Ok(loaded_song) => {
-                    self.downloader_state.song = loaded_song;
-                }
-                Err(error) => {
-                    self.toasts.error(format!("failed to load song: {error}"));
-                }
+            if let Ok(song) = loaded_song {
+                self.downloader_state.song = song;
             }
         }
     }
@@ -219,6 +217,9 @@ impl App {
         if let Some(default_save_directory) = self.settings.default_save_directory.as_ref() {
             self.downloader_state.save_path = PathBuf::from(default_save_directory);
         }
+
+        set_command(DEFAULT_FFMPEG_COMMAND, self.settings.ffmpeg_path.clone());
+        set_command(DEFAULT_YT_DL_COMMAND, self.settings.ytdl_path.clone());
     }
     pub fn is_song_loaded(&self) -> bool {
         !self.downloader_state.song.audio_bytes.is_empty()

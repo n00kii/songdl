@@ -1,24 +1,45 @@
 use anyhow::Result;
+use once_cell::{unsync::{OnceCell, Lazy}};
+use parking_lot::Mutex;
 use serde_json::Value;
 use std::{
     io::Read,
     os::windows::process::CommandExt,
-    process::{Command, Output},
+    process::{Command, Output}, collections::HashMap, cell::RefCell, sync::OnceLock,
 };
 
 use crate::app::tempfile;
 
-pub const YT_DL_COMMAND: &str = "yt-dlp";
-pub const FFMPEG_COMMAND: &str = "ffmpeg";
-pub const CURL_COMMAND: &str = "curl";
+pub const DEFAULT_YT_DL_COMMAND: &str = "yt-dlp";
+pub const DEFAULT_FFMPEG_COMMAND: &str = "ffmpeg";
+pub const DEFAULT_CURL_COMMAND: &str = "curl";
+
+type CommandHashMap = Mutex<HashMap<&'static str, String>>;
+
+fn command_map() -> &'static CommandHashMap {
+    static MAP: OnceLock<CommandHashMap> = OnceLock::new();
+    MAP.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 pub const WIN_FLAG_CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub const FFMPEG_AUDIO_FORMAT: &str = "mp3";
 pub const FFMPEG_AUDIO_FORMAT_EXT: &str = ".mp3";
 
+pub fn get_command(name: &str) -> String {
+    command_map().lock().get(name).map(|v| String::from(v)).unwrap_or(String::from(name))
+}
+
+pub fn set_command(name: &'static str, value: Option<String>) {
+    if let Some(value) = value {
+        command_map().lock().insert(name, value);
+    } else {
+        command_map().lock().remove(name);
+    };
+}
+
 pub fn download_audio(query_url: &String) -> Result<(Vec<u8>, Value)> {
-    let output = Command::new(YT_DL_COMMAND)
+    let output = Command::new(get_command(DEFAULT_YT_DL_COMMAND))
         .args([
             "-j",
             "-f",
@@ -39,7 +60,7 @@ pub fn download_audio(query_url: &String) -> Result<(Vec<u8>, Value)> {
 
 pub fn convert_audio(audio_bytes: &[u8]) -> Result<Vec<u8>> {
     let (_audio_tfile, audio_tfilepath) = tempfile(audio_bytes)?;
-    Ok(Command::new(FFMPEG_COMMAND)
+    Ok(Command::new(get_command(DEFAULT_FFMPEG_COMMAND))
         .args(["-i", &audio_tfilepath, "-f", FFMPEG_AUDIO_FORMAT, "-"])
         .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
         .output()?
@@ -47,7 +68,7 @@ pub fn convert_audio(audio_bytes: &[u8]) -> Result<Vec<u8>> {
 }
 
 pub fn download_thumbnail(query_url: &String) -> Result<Output> {
-    Ok(Command::new(CURL_COMMAND)
+    Ok(Command::new(get_command(DEFAULT_CURL_COMMAND))
         .args([query_url, "-o", "-"])
         .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
         .output()?)
@@ -59,7 +80,7 @@ pub fn write_cover_to_audio(audio_bytes: &[u8], cover_bytes: &[u8]) -> Result<Ve
     let (mut final_audio_tfile, final_audio_tfilepath) = tempfile(&[])?;
 
     let mut final_audio_bytes = vec![];
-    Command::new(FFMPEG_COMMAND)
+    Command::new(get_command(DEFAULT_FFMPEG_COMMAND))
         .args([
             "-i",
             &audio_tfilepath,
@@ -89,7 +110,7 @@ pub fn write_metadata_to_audio(
     metadata: Vec<(String, String)>,
 ) -> Result<Vec<u8>> {
     let (_audio_tfile, audio_tfilepath) = tempfile(&audio_bytes)?;
-    Ok(Command::new(FFMPEG_COMMAND)
+    Ok(Command::new(get_command(DEFAULT_FFMPEG_COMMAND))
         .args(generate_args_from_metadata(audio_tfilepath, metadata))
         .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
         .output()?
