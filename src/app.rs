@@ -1,7 +1,7 @@
 use crate::{
     command::{
-        convert_audio, download_audio, download_thumbnail, set_command, DEFAULT_FFMPEG_COMMAND,
-        DEFAULT_YT_DL_COMMAND,
+        convert_audio, download_audio, download_thumbnail, extract_thumbnail, set_command,
+        DEFAULT_FFMPEG_COMMAND, DEFAULT_YT_DL_COMMAND, extract_metadata,
     },
     iconst,
     interface::{self, InterfacePage},
@@ -204,6 +204,12 @@ pub fn tempfile(contents: &[u8]) -> Result<(NamedTempFile, String)> {
     Ok((tempfile, path))
 }
 
+pub fn remove_characters(s: &mut String, c: &[&str]) {
+    c.into_iter().for_each(|ss| {
+        *s = s.replace(ss, "");
+    });
+}
+
 impl App {
     fn update_state(&mut self) {
         if self.downloader_state.loading_song.is_ready() {
@@ -263,6 +269,36 @@ impl App {
             let mut song: Song = Song::default();
             if let Err(error) = (|| {
                 if song_origin == Origin::Local {
+                    toast.send(ToastUpdate::caption("reading..."))?;
+                    let audio_bytes = fs::read(&query_url)?;
+
+                    if audio_bytes.is_empty() {
+                        bail!("read error")
+                    }
+
+                    toast.send(ToastUpdate::caption("converting audio..."))?;
+                    let converted_audio_bytes = convert_audio(&audio_bytes)?;
+                    
+                    if converted_audio_bytes.is_empty() {
+                        bail!("audio conversion error")
+                    }
+                    
+                    toast.send(ToastUpdate::caption("extracting thumbnail..."))?;
+                    let cover_bytes = extract_thumbnail(&audio_bytes)?;
+
+                    toast.send(ToastUpdate::caption("loading cover..."))?;
+                    let image = image::load_from_memory(&cover_bytes)?;
+                    let cover_texture_handle = load_egui_image(&ctx_clone, &song.title, &image)?;
+                    
+                    toast.send(ToastUpdate::caption("parsing metadata..."))?;
+                    let audio_details = extract_metadata(&audio_bytes)?;
+                    song.update_metadata_from_json(audio_details);
+
+
+                    song.cover_texture_handle = Some(cover_texture_handle);
+                    song.cover_bytes = cover_bytes;
+                    song.audio_bytes = converted_audio_bytes;
+                    song.source_url = query_url;
                 } else {
                     toast.send(ToastUpdate::caption("downloading audio..."))?;
                     let (audio_bytes, audio_details) = download_audio(&query_url)?;
@@ -300,7 +336,7 @@ impl App {
 
                     song.cover_bytes = cover_bytes;
                     song.audio_bytes = converted_audio_bytes;
-                    song.source_url = query_url.clone();
+                    song.source_url = query_url;
                 }
 
                 anyhow::Ok(())

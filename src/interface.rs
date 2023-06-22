@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{app::App, song::Origin};
+use crate::{app::{App, self}, song::Origin};
 use egui::{
     CentralPanel, Color32, Context, Label, Layout, Rect, RichText, Rounding, Sense, Spinner,
     Stroke, TextEdit, TopBottomPanel, Ui, Vec2,
@@ -131,10 +131,14 @@ fn downloader(app: &mut App, ui: &mut Ui) {
             .show(ui)
             .response;
 
-        if !app.is_song_loading() && tedit_response.changed() {
-            app.downloader_state.song_origin =
-                Origin::from_link(&app.downloader_state.song.source_url);
+        if tedit_response.changed() {
+            app::remove_characters(&mut app.downloader_state.song.source_url, &["\""]);
+            if !app.is_song_loading() {
+                app.downloader_state.song_origin =
+                    Origin::from_link(&app.downloader_state.song.source_url);
+            }
         }
+
 
         if ui.button("query").clicked() {
             app.query(ui.ctx())
@@ -252,7 +256,7 @@ fn downloader(app: &mut App, ui: &mut Ui) {
                         });
                         ui.add_space(iconst!(SPACER_SIZE) * 5.);
                         ui.group(|ui| {
-                            ui.label("save directory");
+                            ui.label("save");
                             ui.separator();
                             path_edit(ui, &mut app.downloader_state.save_path, false);
                             ui.add_enabled_ui(app.downloader_state.save_path.exists(), |ui| {

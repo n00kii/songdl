@@ -1,7 +1,8 @@
 use anyhow::Result;
 
 use parking_lot::Mutex;
-use serde_json::Value;
+use regex::Regex;
+use serde_json::{Value, json,Map};
 use std::{
     collections::HashMap,
     io::Read,
@@ -67,10 +68,62 @@ pub fn download_audio(query_url: &String) -> Result<(Vec<u8>, Value)> {
 pub fn convert_audio(audio_bytes: &[u8]) -> Result<Vec<u8>> {
     let (_audio_tfile, audio_tfilepath) = tempfile(audio_bytes)?;
     Ok(Command::new(get_command(DEFAULT_FFMPEG_COMMAND))
-        .args(["-i", &audio_tfilepath, "-f", FFMPEG_AUDIO_FORMAT, "-"])
+        .args([
+            "-i",
+            &audio_tfilepath,
+            "-vn",
+            "-f",
+            FFMPEG_AUDIO_FORMAT,
+            "-",
+        ])
         .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
         .output()?
         .stdout)
+}
+
+pub fn extract_thumbnail(audio_bytes: &[u8]) -> Result<Vec<u8>> {
+    let (_audio_tfile, audio_tfilepath) = tempfile(audio_bytes)?;
+    Ok(Command::new(get_command(DEFAULT_FFMPEG_COMMAND))
+        .args([
+            "-i",
+            &audio_tfilepath,
+            "-an",
+            "-vcodec",
+            "copy",
+            "-f",
+            "mjpeg",
+            "-",
+        ])
+        .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
+        .output()?
+        .stdout)
+}
+
+pub fn extract_metadata(audio_bytes: &[u8]) -> Result<Value> {
+    let (_audio_tfile, audio_tfilepath) = tempfile(audio_bytes)?;
+    let raw_metadata = String::from_utf8(
+        Command::new(get_command(DEFAULT_FFMPEG_COMMAND))
+            .args([
+                "-i",
+                &audio_tfilepath,
+                "-loglevel",
+                "panic",
+                "-hide_banner",
+                "-f",
+                "ffmetadata",
+                "-",
+            ])
+            .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
+            .output()?
+            .stdout,
+    )?;
+
+    let mut map = Map::new();
+    let metadata_re = Regex::new(r"(\S+)=(\S+)")?;
+    for cap in metadata_re.captures_iter(&raw_metadata) {
+        map.insert(cap[1].to_string(), Value::String(cap[2].to_string()));
+    }
+    Ok(Value::Object(map))
 }
 
 pub fn download_thumbnail(query_url: &String) -> Result<Output> {

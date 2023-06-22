@@ -5,7 +5,7 @@ use egui::TextureHandle;
 use serde_json::Value;
 
 use crate::{
-    app::json_read,
+    app::{json_read, self},
     command::{write_cover_to_audio, write_metadata_to_audio, FFMPEG_AUDIO_FORMAT_EXT},
 };
 
@@ -66,7 +66,7 @@ pub struct Song {
     pub cover_bytes: Vec<u8>,
 
     pub source_url: String,
-
+    pub gain: i32,
     pub cover_texture_handle: Option<TextureHandle>,
 }
 
@@ -102,10 +102,16 @@ impl Song {
 
             let json = Value::Object(json);
 
-            let json_read = |field: &str| json_read(&json, field);
+            let set_if_exists = |struct_field: &mut String, json_field: &str| {
+                let value = json_read(&json, json_field);
+                if !value.is_empty() {
+                    *struct_field = value;
+                }
+            };
 
-            self.title = json_read("title");
-            self.artist = json_read("uploader");
+            set_if_exists(&mut self.title, "title");
+            set_if_exists(&mut self.artist, "artist");
+            set_if_exists(&mut self.artist, "uploader");
         }
     }
     pub fn write_to_disk(&self, save_path: &PathBuf) -> Result<()> {
@@ -113,11 +119,7 @@ impl Song {
             .to_ascii_lowercase()
             .replace(" ", "_");
 
-        ["/", "*", ":", "?", "\"", "<", ">", "|"]
-            .into_iter()
-            .for_each(|s| {
-                filename = filename.replace(s, "");
-            });
+        app::remove_characters(&mut filename, &["/", "*", ":", "?", "\"", "<", ">", "|"]);
 
         let mut final_save_path = save_path.clone();
 
