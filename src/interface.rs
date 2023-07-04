@@ -1,4 +1,4 @@
-use std::{io::Cursor, path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 use crate::{
     app::{self, App},
@@ -6,11 +6,10 @@ use crate::{
 };
 use egui::{
     pos2, vec2, Align2, Button, CentralPanel, Color32, Context, FontData, FontFamily, FontId,
-    Label, Layout, Rect, Response, RichText, Rounding, ScrollArea, Sense, Slider, Spinner, Stroke,
-    Style, TextEdit, TopBottomPanel, Ui, Vec2,
+    Label, Layout, Rect, Response, RichText, Rounding, Sense, Slider, Spinner, Stroke, Style,
+    TextEdit, TopBottomPanel, Ui, Vec2,
 };
 use egui_extras::{Column, Size, StripBuilder, TableBuilder};
-use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 
 #[macro_export]
 macro_rules! iconst {
@@ -222,7 +221,7 @@ fn draw_options(app: &mut App, ui: &mut Ui) {
                             row.col(|ui| {
                                 ui.add_enabled_ui(enabled, |ui| f(ui));
                             });
-                            row.col(|ui| {});
+                            row.col(|_ui| {});
                         })
                     }
 
@@ -555,11 +554,12 @@ pub fn load_style(ctx: &Context) {
     fn stroke(color: Color32) -> Stroke {
         Stroke::new(1., color)
     }
-    style.visuals.widgets.noninteractive.bg_stroke = stroke(scale_color(iconst!(PRIMARY_BG_FILL_COLOR), 1.5));
+    style.visuals.widgets.noninteractive.bg_stroke =
+        stroke(scale_color(iconst!(PRIMARY_BG_FILL_COLOR), 1.5));
     style.visuals.widgets.noninteractive.bg_fill = iconst!(PRIMARY_BG_FILL_COLOR);
     style.visuals.window_fill = iconst!(PRIMARY_BG_FILL_COLOR);
     style.visuals.panel_fill = iconst!(PRIMARY_BG_FILL_COLOR);
-    
+
     style.visuals.extreme_bg_color = iconst!(SECONDARY_BG_FILL_COLOR);
 
     style.visuals.widgets.inactive.bg_fill = iconst!(INACTIVE_BG_FILL_COLOR);

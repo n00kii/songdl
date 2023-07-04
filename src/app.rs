@@ -1,17 +1,16 @@
 use crate::{
     command::{
         convert_audio, download_audio, download_thumbnail, extract_metadata, extract_thumbnail,
-        get_average_volume, set_command, apply_volume_offset, DEFAULT_FFMPEG_COMMAND,
-        DEFAULT_YT_DL_COMMAND,
+        set_command, DEFAULT_FFMPEG_COMMAND, DEFAULT_YT_DL_COMMAND,
     },
     iconst,
-    interface::{self, InterfacePage, load_fonts, load_style},
-    song::{Song, Waveform, WAVEFORM_LENGTH},
+    interface::{self, load_fonts, load_style, InterfacePage},
+    song::Song,
 };
 
 use anyhow::{bail, Context as ErrorContext, Result};
-use eframe::{self, CreationContext};
-use egui::{ColorImage, Context, FontData, FontFamily, TextureHandle, TextureOptions};
+use eframe::{self};
+use egui::{ColorImage, Context, TextureHandle, TextureOptions};
 use egui_notify::{ToastOptions, ToastUpdate, Toasts};
 use figment::{
     providers::{Format, Serialized},
@@ -21,10 +20,7 @@ use figment::{
 use image::{imageops, DynamicImage};
 use kira::{
     manager::{backend::DefaultBackend, AudioManager, AudioManagerSettings},
-    sound::{
-        static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
-        PlaybackState,
-    },
+    sound::static_sound::StaticSoundHandle,
     tween::Tween,
 };
 use poll_promise::Promise;
@@ -115,8 +111,6 @@ pub fn json_read(json: &Value, field: &str) -> String {
         .to_string()
         .replace("\"", "")
 }
-
-
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
@@ -210,7 +204,8 @@ impl App {
     }
     pub fn apply_playback_volume(&mut self) -> Result<()> {
         if let Some(current_song_handle) = self.downloader_state.song_handle.as_mut() {
-            current_song_handle.set_volume(self.settings.playback_volume as f64, Tween::default())?;
+            current_song_handle
+                .set_volume(self.settings.playback_volume as f64, Tween::default())?;
         }
         Ok(())
     }
@@ -259,15 +254,19 @@ impl App {
     }
 
     pub fn song_position_ratio(&mut self) -> Option<f32> {
-        self.downloader_state.song.audio_frames.as_ref().and_then(|d| {
-            self.downloader_state
-                .song_handle
-                .as_ref()
-                .map(|s| s.position() as f32 / d.duration().as_secs() as f32)
-        })
+        self.downloader_state
+            .song
+            .audio_frames
+            .as_ref()
+            .and_then(|d| {
+                self.downloader_state
+                    .song_handle
+                    .as_ref()
+                    .map(|s| s.position() as f32 / d.duration().as_secs() as f32)
+            })
     }
 
-    fn update_state(&mut self, ctx: &Context) {
+    fn update_state(&mut self, _ctx: &Context) {
         if self.downloader_state.loading_song.is_ready() {
             let loaded_song = self.downloader_state.loading_song.unwrap_and_take();
             if let Ok(song) = loaded_song {
@@ -368,9 +367,9 @@ impl App {
                     toast.send(ToastUpdate::caption("loading cover..."))?;
                     if !cover_bytes.is_empty() {
                         let image = image::load_from_memory(&cover_bytes)?;
-                        let cover_texture_handle = load_egui_image(&ctx_clone, &song.title, &image)?;
+                        let cover_texture_handle =
+                            load_egui_image(&ctx_clone, &song.title, &image)?;
                         song.cover_texture_handle = Some(cover_texture_handle);
-
                     }
 
                     toast.send(ToastUpdate::caption("parsing metadata..."))?;
@@ -433,8 +432,6 @@ impl App {
                 )?;
                 return Err(error);
             }
-
-            
 
             Ok(song)
         }));

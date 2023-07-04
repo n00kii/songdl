@@ -2,7 +2,7 @@ use std::{fmt::Display, io::Cursor, path::PathBuf};
 
 use anyhow::Result;
 use egui::TextureHandle;
-use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
+use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use serde_json::Value;
 
 use crate::{
