@@ -1,8 +1,8 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use parking_lot::Mutex;
 use regex::Regex;
-use serde_json::{Value, json,Map};
+use serde_json::{Map, Value};
 use std::{
     collections::HashMap,
     io::Read,
@@ -124,6 +124,49 @@ pub fn extract_metadata(audio_bytes: &[u8]) -> Result<Value> {
         map.insert(cap[1].to_string(), Value::String(cap[2].to_string()));
     }
     Ok(Value::Object(map))
+}
+
+pub fn get_average_volume(audio_bytes: &[u8]) -> Result<f32> {
+    let (_audio_tfile, audio_tfilepath) = tempfile(audio_bytes)?;
+    let output_string = String::from_utf8(
+        Command::new(get_command(DEFAULT_FFMPEG_COMMAND))
+            .args([
+                "-i",
+                &audio_tfilepath,
+                "-hide_banner",
+                "-af",
+                "volumedetect",
+                "-vn",
+                "-sn",
+                "-dn",
+                "-f",
+                "null",
+                "-",
+            ])
+            .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
+            .output()?
+            .stderr,
+    )?;
+    let volume_re = Regex::new(r"mean_volume:\s(\S+)\s")?;
+    let mut captures = volume_re.captures_iter(&output_string);
+    Ok(captures.next().context("couldn't get volume")?[1].parse::<f32>()?)
+}
+
+pub fn apply_volume_offset(audio_bytes: &[u8], offset: f32) -> Result<Vec<u8>> {
+    let (_audio_tfile, audio_tfilepath) = tempfile(&audio_bytes)?;
+    Ok(Command::new(get_command(DEFAULT_FFMPEG_COMMAND))
+        .args([
+            "-i",
+            &audio_tfilepath,
+            "-af",
+            &format!("volume={offset}dB"),
+            "-f",
+            FFMPEG_AUDIO_FORMAT,
+            "-",
+        ])
+        .creation_flags(WIN_FLAG_CREATE_NO_WINDOW)
+        .output()?
+        .stdout)
 }
 
 pub fn download_thumbnail(query_url: &String) -> Result<Output> {

@@ -1,14 +1,15 @@
 use crate::{
     command::{
-        convert_audio, download_audio, download_thumbnail, extract_thumbnail, set_command,
-        DEFAULT_FFMPEG_COMMAND, DEFAULT_YT_DL_COMMAND, extract_metadata,
+        convert_audio, download_audio, download_thumbnail, extract_metadata, extract_thumbnail,
+        get_average_volume, set_command, apply_volume_offset, DEFAULT_FFMPEG_COMMAND,
+        DEFAULT_YT_DL_COMMAND,
     },
     iconst,
-    interface::{self, InterfacePage},
-    song::Song,
+    interface::{self, InterfacePage, load_fonts, load_style},
+    song::{Song, Waveform, WAVEFORM_LENGTH},
 };
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context as ErrorContext, Result};
 use eframe::{self, CreationContext};
 use egui::{ColorImage, Context, FontData, FontFamily, TextureHandle, TextureOptions};
 use egui_notify::{ToastOptions, ToastUpdate, Toasts};
@@ -18,6 +19,14 @@ use figment::{
 };
 
 use image::{imageops, DynamicImage};
+use kira::{
+    manager::{backend::DefaultBackend, AudioManager, AudioManagerSettings},
+    sound::{
+        static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
+        PlaybackState,
+    },
+    tween::Tween,
+};
 use poll_promise::Promise;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -25,6 +34,7 @@ use std::{
     fs,
     io::{Cursor, Write},
     path::PathBuf,
+    time::Duration,
 };
 
 use crate::song::Origin;
@@ -37,6 +47,7 @@ pub struct App {
 
     pub settings: Settings,
     pub downloader_state: DownloaderState,
+    pub audio_manager: Option<AudioManager>,
 }
 
 pub const SETTINGS_FILENAME: &str = "settings.toml";
@@ -44,9 +55,12 @@ pub const SETTINGS_FILENAME: &str = "settings.toml";
 #[derive(Default)]
 pub struct DownloaderState {
     pub song: Song,
+    pub song_handle: Option<StaticSoundHandle>,
     pub song_origin: Origin,
     pub save_path: PathBuf,
     pub loading_song: Option<Promise<Result<Song>>>,
+
+    pub volume_offset: String,
 
     pub separate_album: bool,
     pub separate_album_artist: bool,
@@ -73,12 +87,20 @@ impl<T: Send> Ready for Option<Promise<T>> {
     }
 }
 
+const PLAYBACK_TWEEN: Tween = Tween {
+    duration: Duration::from_millis(200),
+    start_time: kira::StartTime::Immediate,
+    easing: kira::tween::Easing::Linear,
+};
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Settings {
     pub default_save_directory: Option<String>,
 
     pub ffmpeg_path: Option<String>,
     pub ytdl_path: Option<String>,
+
+    pub playback_volume: f32,
 }
 
 fn init_settings() -> Result<Settings> {
@@ -94,56 +116,14 @@ pub fn json_read(json: &Value, field: &str) -> String {
         .replace("\"", "")
 }
 
-fn load_fonts(cc: &CreationContext) {
-    let mut fonts = egui::FontDefinitions::default();
-    egui_phosphor::add_to_fonts(&mut fonts);
 
-    let mut phosphor_data = fonts.font_data.get_mut("phosphor").unwrap();
-    phosphor_data.tweak = egui::FontTweak {
-        y_offset: 1.25,
-        ..Default::default()
-    };
-
-    fonts.font_data.insert(
-        String::from("japanese_fallback"),
-        FontData::from_static(include_bytes!("resources/NotoSansJP-Regular.otf")),
-    );
-    fonts.font_data.insert(
-        String::from("korean_fallback"),
-        FontData::from_static(include_bytes!("resources/NotoSansKR-Regular.otf")),
-    );
-    fonts.font_data.insert(
-        String::from("s_chinese_fallback"),
-        FontData::from_static(include_bytes!("resources/NotoSansSC-Regular.otf")),
-    );
-    fonts.font_data.insert(
-        String::from("t_chinese_fallback"),
-        FontData::from_static(include_bytes!("resources/NotoSansTC-Regular.otf")),
-    );
-
-    [
-        "japanese_fallback",
-        "korean_fallback",
-        "s_chinese_fallback",
-        "t_chinese_fallback",
-    ]
-    .into_iter()
-    .for_each(|font_name| {
-        fonts
-            .families
-            .get_mut(&FontFamily::Proportional)
-            .unwrap()
-            .push(String::from(font_name));
-    });
-
-    cc.egui_ctx.set_fonts(fonts);
-}
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        interface::root(self, ctx);
+        interface::draw_root(self, ctx);
         self.toasts.show(ctx);
-        self.update_state();
+        self.update_state(ctx);
+        ctx.request_repaint();
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         if let Err(_error) = (|| {
@@ -167,11 +147,15 @@ pub fn init() {
 
     app.read_config();
 
+    app.audio_manager = AudioManager::<DefaultBackend>::new(AudioManagerSettings::default()).ok();
+
     let _ = eframe::run_native(
         env!("CARGO_PKG_NAME"),
         window_options,
         Box::new(|cc| {
-            load_fonts(cc);
+            let ctx = &cc.egui_ctx;
+            load_fonts(ctx);
+            load_style(ctx);
             Box::new(app)
         }),
     );
@@ -211,7 +195,79 @@ pub fn remove_characters(s: &mut String, c: &[&str]) {
 }
 
 impl App {
-    fn update_state(&mut self) {
+    pub fn start_song(&mut self) -> Result<()> {
+        self.stop_current_playing_song()?;
+        if let Some(audio_manager) = self.audio_manager.as_mut() {
+            if let Some(sound_data) = self.downloader_state.song.audio_frames.clone() {
+                let mut song_handle = audio_manager.play(sound_data)?;
+                song_handle.set_volume(self.settings.playback_volume as f64, PLAYBACK_TWEEN)?;
+                self.downloader_state.song_handle = Some(song_handle);
+            }
+        } else {
+            bail!("no sound device")
+        }
+        Ok(())
+    }
+    pub fn apply_playback_volume(&mut self) -> Result<()> {
+        if let Some(current_song_handle) = self.downloader_state.song_handle.as_mut() {
+            current_song_handle.set_volume(self.settings.playback_volume as f64, Tween::default())?;
+        }
+        Ok(())
+    }
+
+    pub fn stop_current_playing_song(&mut self) -> Result<()> {
+        if let Some(current_song_handle) = self.downloader_state.song_handle.as_mut() {
+            current_song_handle.stop(Tween::default())?;
+        }
+        Ok(())
+    }
+
+    pub fn toggle_song_playback(&mut self) -> Result<()> {
+        let mut do_start = false;
+        if let Some(current_song_handle) = self.downloader_state.song_handle.as_mut() {
+            match current_song_handle.state() {
+                kira::sound::PlaybackState::Playing => current_song_handle.pause(PLAYBACK_TWEEN)?,
+                kira::sound::PlaybackState::Pausing => {
+                    current_song_handle.resume(PLAYBACK_TWEEN)?
+                }
+                kira::sound::PlaybackState::Paused => current_song_handle.resume(PLAYBACK_TWEEN)?,
+                kira::sound::PlaybackState::Stopping => do_start = true,
+                kira::sound::PlaybackState::Stopped => do_start = true,
+            }
+        } else {
+            do_start = true;
+        }
+        if do_start {
+            self.start_song()?;
+        }
+        Ok(())
+    }
+
+    pub fn seek_song(&mut self, seek_ratio: f32) -> Result<()> {
+        let total_duration = self
+            .downloader_state
+            .song
+            .audio_frames
+            .as_ref()
+            .map(|s| s.duration())
+            .context("no song data")?;
+        if let Some(current_song_handle) = self.downloader_state.song_handle.as_mut() {
+            let target_position = total_duration.as_secs() as f32 * seek_ratio;
+            current_song_handle.seek_to(target_position as f64)?;
+        }
+        Ok(())
+    }
+
+    pub fn song_position_ratio(&mut self) -> Option<f32> {
+        self.downloader_state.song.audio_frames.as_ref().and_then(|d| {
+            self.downloader_state
+                .song_handle
+                .as_ref()
+                .map(|s| s.position() as f32 / d.duration().as_secs() as f32)
+        })
+    }
+
+    fn update_state(&mut self, ctx: &Context) {
         if self.downloader_state.loading_song.is_ready() {
             let loaded_song = self.downloader_state.loading_song.unwrap_and_take();
             if let Ok(song) = loaded_song {
@@ -232,6 +288,26 @@ impl App {
     }
     pub fn is_song_loading(&self) -> bool {
         self.downloader_state.loading_song.is_some()
+    }
+    pub fn apply_volume_offset(&mut self) {
+        let mut song = self.downloader_state.song.clone();
+        let offset = self.downloader_state.volume_offset.parse::<f32>().unwrap();
+        let toast = self.toasts.info("setting volume...").create_channel();
+        let _ = self.stop_current_playing_song();
+        self.downloader_state.loading_song = Some(Promise::spawn_thread("save_song", move || {
+            if let Err(error) = (|| {
+                song.apply_volume_offset(offset)?;
+                anyhow::Ok(())
+            })() {
+                toast.send(
+                    ToastUpdate::caption(format!("failed: {error}"))
+                        .with_fallback_options(ToastOptions::default())
+                        .with_level(egui_notify::ToastLevel::Error),
+                )?;
+                return Err(error);
+            }
+            Ok(song)
+        }));
     }
     pub fn save(&mut self) {
         let mut song = self.downloader_state.song.clone();
@@ -265,6 +341,9 @@ impl App {
         let query_url = self.downloader_state.song.source_url.clone();
         let song_origin = self.downloader_state.song_origin;
         let toast = self.toasts.info("initializing...").create_channel();
+
+        let _ = self.stop_current_playing_song();
+
         self.downloader_state.loading_song = Some(Promise::spawn_thread("query_song", move || {
             let mut song: Song = Song::default();
             if let Err(error) = (|| {
@@ -278,24 +357,26 @@ impl App {
 
                     toast.send(ToastUpdate::caption("converting audio..."))?;
                     let converted_audio_bytes = convert_audio(&audio_bytes)?;
-                    
+
                     if converted_audio_bytes.is_empty() {
                         bail!("audio conversion error")
                     }
-                    
+
                     toast.send(ToastUpdate::caption("extracting thumbnail..."))?;
                     let cover_bytes = extract_thumbnail(&audio_bytes)?;
 
                     toast.send(ToastUpdate::caption("loading cover..."))?;
-                    let image = image::load_from_memory(&cover_bytes)?;
-                    let cover_texture_handle = load_egui_image(&ctx_clone, &song.title, &image)?;
-                    
+                    if !cover_bytes.is_empty() {
+                        let image = image::load_from_memory(&cover_bytes)?;
+                        let cover_texture_handle = load_egui_image(&ctx_clone, &song.title, &image)?;
+                        song.cover_texture_handle = Some(cover_texture_handle);
+
+                    }
+
                     toast.send(ToastUpdate::caption("parsing metadata..."))?;
                     let audio_details = extract_metadata(&audio_bytes)?;
                     song.update_metadata_from_json(audio_details);
 
-
-                    song.cover_texture_handle = Some(cover_texture_handle);
                     song.cover_bytes = cover_bytes;
                     song.audio_bytes = converted_audio_bytes;
                     song.source_url = query_url;
@@ -339,6 +420,10 @@ impl App {
                     song.source_url = query_url;
                 }
 
+                toast.send(ToastUpdate::caption("reading song..."))?;
+                song.update_audio_frames()?;
+                song.update_current_volume()?;
+
                 anyhow::Ok(())
             })() {
                 toast.send(
@@ -348,6 +433,9 @@ impl App {
                 )?;
                 return Err(error);
             }
+
+            
+
             Ok(song)
         }));
     }

@@ -1,12 +1,17 @@
-use std::{fmt::Display, path::PathBuf};
+use std::{fmt::Display, io::Cursor, path::PathBuf};
 
 use anyhow::Result;
 use egui::TextureHandle;
+use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
 use serde_json::Value;
 
 use crate::{
-    app::{json_read, self},
-    command::{write_cover_to_audio, write_metadata_to_audio, FFMPEG_AUDIO_FORMAT_EXT},
+    app::{self, json_read},
+    command::{
+        apply_volume_offset, get_average_volume, write_cover_to_audio, write_metadata_to_audio,
+        FFMPEG_AUDIO_FORMAT_EXT,
+    },
+    iconst,
 };
 
 #[derive(Default, Clone, Copy, PartialEq)]
@@ -46,9 +51,9 @@ impl Origin {
 impl Display for Origin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::YouTube => write!(f, "{}", egui_phosphor::YOUTUBE_LOGO),
-            Self::Soundcloud => write!(f, "{}", egui_phosphor::SOUNDCLOUD_LOGO),
-            Self::Local => write!(f, "{}", egui_phosphor::FOLDER),
+            Self::YouTube => write!(f, "{}", iconst!(YOUTUBE_ICON)),
+            Self::Soundcloud => write!(f, "{}", iconst!(SOUNDCLOUD_ICON)),
+            Self::Local => write!(f, "{}", iconst!(FOLDER_ICON)),
             _ => write!(f, "?"),
         }
     }
@@ -66,8 +71,27 @@ pub struct Song {
     pub cover_bytes: Vec<u8>,
 
     pub source_url: String,
-    pub gain: i32,
+    pub volume: f32,
+
     pub cover_texture_handle: Option<TextureHandle>,
+    pub audio_frames: Option<StaticSoundData>,
+    pub waveform: Waveform,
+}
+
+pub const WAVEFORM_LENGTH: usize = 230;
+#[derive(Clone)]
+pub struct Waveform(pub [f32; WAVEFORM_LENGTH]);
+
+impl Default for Waveform {
+    fn default() -> Self {
+        Self([0.; WAVEFORM_LENGTH])
+    }
+}
+
+impl Waveform {
+    pub fn new(values: Vec<f32>) -> Self {
+        Self(values.try_into().unwrap_or([0.; WAVEFORM_LENGTH]))
+    }
 }
 
 impl Song {
@@ -83,6 +107,41 @@ impl Song {
             (String::from("artist"), self.artist.clone()),
             (String::from("album"), self.album.clone()),
         ]
+    }
+    pub fn update_current_volume(&mut self) -> Result<()> {
+        self.volume = get_average_volume(&self.audio_bytes)?;
+        Ok(())
+    }
+    pub fn apply_volume_offset(&mut self, offset: f32) -> Result<()> {
+        self.audio_bytes = apply_volume_offset(&self.audio_bytes, offset)?;
+        self.update_current_volume()?;
+        self.update_audio_frames()?;
+        Ok(())
+    }
+    pub fn update_audio_frames(&mut self) -> Result<()> {
+        let f_max = |f: &[f32]| f.iter().cloned().fold(f32::NAN, f32::max);
+
+        let audio_frames = StaticSoundData::from_cursor(
+            Cursor::new(self.audio_bytes.clone()),
+            StaticSoundSettings::default(),
+        )?;
+
+        let mono_frames = audio_frames
+            .frames
+            .iter()
+            .map(|f| (f.left as f32 + f.right as f32) * 0.5)
+            .collect::<Vec<_>>();
+        let num_chunks = mono_frames.len() / WAVEFORM_LENGTH;
+        let mut waveform = mono_frames
+            .chunks_exact(num_chunks)
+            .map(|c| f_max(c))
+            .collect::<Vec<_>>();
+        let max = f_max(&waveform);
+        waveform.iter_mut().for_each(|s: &mut f32| *s = *s / max);
+
+        self.audio_frames = Some(audio_frames);
+        self.waveform = Waveform::new(waveform);
+        Ok(())
     }
     pub fn update_metadata_from_json(&mut self, json: Value) {
         if let serde_json::Value::Object(mut json) = json {
