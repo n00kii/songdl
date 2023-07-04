@@ -347,8 +347,8 @@ fn draw_downloader(app: &mut App, ui: &mut Ui) {
     if !app.downloader_state.seperate_composer {
         app.downloader_state.song.composer = app.downloader_state.song.artist.clone();
     }
-
-    ui.add_enabled_ui(app.is_song_loaded() && !app.is_song_loading(), |ui| {
+    let controls_enabled = app.is_song_loaded() && !app.is_song_loading();
+    let controls_response = ui.add_enabled_ui(controls_enabled, |ui| {
         StripBuilder::new(ui)
             .size(Size::remainder())
             .size(Size::exact(iconst!(SONG_BAR_HEIGHT)))
@@ -371,8 +371,12 @@ fn draw_downloader(app: &mut App, ui: &mut Ui) {
                 strip.cell(|ui| {
                     draw_waveform(app, ui);
                 });
-            });
-    });
+            })
+    }).response;
+
+    if !controls_enabled {
+        controls_response.on_hover_text_at_pointer("query a song first");
+    }
 
     if app.is_song_loading() {
         ui.put(
