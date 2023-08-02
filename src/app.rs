@@ -1,7 +1,7 @@
 use crate::{
     command::{
         convert_audio, download_audio, download_thumbnail, extract_metadata, extract_thumbnail,
-        set_command, DEFAULT_FFMPEG_COMMAND, DEFAULT_YT_DL_COMMAND,
+        set_command, write_cover_to_audio, DEFAULT_FFMPEG_COMMAND, DEFAULT_YT_DL_COMMAND,
     },
     iconst,
     interface::{self, load_fonts, load_style, InterfacePage},
@@ -327,6 +327,36 @@ impl App {
             })() {
                 toast.send(
                     ToastUpdate::caption(format!("failed: {error}"))
+                        .with_fallback_options(ToastOptions::default())
+                        .with_level(egui_notify::ToastLevel::Error),
+                )?;
+                return Err(error);
+            }
+            Ok(song)
+        }));
+    }
+    pub fn set_cover_by_path(&mut self, ctx: &Context, path: PathBuf) {
+        let toast: crossbeam_channel::Sender<ToastUpdate> =
+            self.toasts.info("loading cover...").create_channel();
+        let ctx_clone = ctx.clone();
+        let mut song = self.downloader_state.song.clone();
+        self.downloader_state.loading_song = Some(Promise::spawn_thread("query_song", move || {
+            if let Err(error) = (|| {
+                let mut cover_bytes = fs::read(path)?;
+
+                if !cover_bytes.is_empty() {
+                    let image = image::load_from_memory(&cover_bytes)?;
+                    let cover_texture_handle = load_egui_image(&ctx_clone, &song.title, &image)?;
+                    image.write_to(&mut Cursor::new(&mut cover_bytes), image::ImageFormat::Jpeg)?;
+
+                    song.cover_texture_handle = Some(cover_texture_handle);
+                    song.cover_bytes = cover_bytes;
+                }
+
+                anyhow::Ok(())
+            })() {
+                toast.send(
+                    ToastUpdate::caption(format!("failed setting cover: {error}"))
                         .with_fallback_options(ToastOptions::default())
                         .with_level(egui_notify::ToastLevel::Error),
                 )?;

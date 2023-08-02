@@ -6,8 +6,8 @@ use crate::{
 };
 use egui::{
     pos2, vec2, Align2, Button, CentralPanel, Color32, Context, FontData, FontFamily, FontId,
-    Label, Layout, Rect, Response, RichText, Rounding, Sense, Slider, Spinner, Stroke, Style,
-    TextEdit, TopBottomPanel, Ui, Vec2,
+    Image, Label, Layout, Rect, Response, RichText, Rounding, Sense, Slider, Spinner, Stroke,
+    Style, TextEdit, TopBottomPanel, Ui, Vec2,
 };
 use egui_extras::{Column, Size, StripBuilder, TableBuilder};
 
@@ -164,26 +164,34 @@ fn draw_settings(app: &mut App, ui: &mut Ui) {
 
 fn draw_cover_image(app: &mut App, ui: &mut Ui) {
     let image_size = [iconst!(COVER_SIZE); 2];
-    if let Some(texture_handle) = app.downloader_state.song.cover_texture_handle.as_ref() {
-        ui.image(texture_handle.id(), image_size);
-    } else {
-        let unk_cover_resp = ui.add_sized(
-            image_size,
-            Label::new(
-                RichText::new(app.downloader_state.song_origin.to_string())
-                    .size(iconst!(COVER_SIZE) * 0.15)
-                    .color(iconst!(INACTIVE_FG_STROKE_COLOR)),
-            )
-            .sense(Sense::click()),
-        );
+    let cover_resp =
+        if let Some(texture_handle) = app.downloader_state.song.cover_texture_handle.as_ref() {
+            ui.add(Image::new(texture_handle.id(), image_size).sense(Sense::click()))
+        } else {
+            let unk_cover_resp = ui.add_sized(
+                image_size,
+                Label::new(
+                    RichText::new(app.downloader_state.song_origin.to_string())
+                        .size(iconst!(COVER_SIZE) * 0.15)
+                        .color(iconst!(INACTIVE_FG_STROKE_COLOR)),
+                )
+                .sense(Sense::click()),
+            );
 
-        ui.painter().rect(
-            unk_cover_resp.rect,
-            Rounding::same(3.),
-            Color32::TRANSPARENT,
-            Stroke::new(1., iconst!(INACTIVE_FG_STROKE_COLOR)),
-        );
+            ui.painter().rect(
+                unk_cover_resp.rect,
+                Rounding::same(3.),
+                Color32::TRANSPARENT,
+                Stroke::new(1., iconst!(INACTIVE_FG_STROKE_COLOR)),
+            );
+            unk_cover_resp
+        };
+    if cover_resp.clicked() {
+        if let Some(new_cover_path) = rfd::FileDialog::new().pick_file() {
+            app.set_cover_by_path(ui.ctx(), new_cover_path)
+        }
     }
+    cover_resp.on_hover_text_at_pointer(label!("edit", EDIT_ICON));
 }
 
 fn draw_options(app: &mut App, ui: &mut Ui) {
@@ -348,31 +356,33 @@ fn draw_downloader(app: &mut App, ui: &mut Ui) {
         app.downloader_state.song.composer = app.downloader_state.song.artist.clone();
     }
     let controls_enabled = app.is_song_loaded() && !app.is_song_loading();
-    let controls_response = ui.add_enabled_ui(controls_enabled, |ui| {
-        StripBuilder::new(ui)
-            .size(Size::remainder())
-            .size(Size::exact(iconst!(SONG_BAR_HEIGHT)))
-            .vertical(|mut strip| {
-                strip.cell(|ui| {
-                    StripBuilder::new(ui)
-                        .size(Size::exact(0.))
-                        .size(Size::exact(iconst!(COVER_SIZE) + iconst!(COVER_PADDING)))
-                        .size(Size::remainder())
-                        .horizontal(|mut strip| {
-                            strip.empty();
-                            strip.cell(|ui| {
-                                draw_cover_image(app, ui);
+    let controls_response = ui
+        .add_enabled_ui(controls_enabled, |ui| {
+            StripBuilder::new(ui)
+                .size(Size::remainder())
+                .size(Size::exact(iconst!(SONG_BAR_HEIGHT)))
+                .vertical(|mut strip| {
+                    strip.cell(|ui| {
+                        StripBuilder::new(ui)
+                            .size(Size::exact(0.))
+                            .size(Size::exact(iconst!(COVER_SIZE) + iconst!(COVER_PADDING)))
+                            .size(Size::remainder())
+                            .horizontal(|mut strip| {
+                                strip.empty();
+                                strip.cell(|ui| {
+                                    draw_cover_image(app, ui);
+                                });
+                                strip.cell(|ui| {
+                                    draw_options(app, ui);
+                                });
                             });
-                            strip.cell(|ui| {
-                                draw_options(app, ui);
-                            });
-                        });
-                });
-                strip.cell(|ui| {
-                    draw_waveform(app, ui);
-                });
-            })
-    }).response;
+                    });
+                    strip.cell(|ui| {
+                        draw_waveform(app, ui);
+                    });
+                })
+        })
+        .response;
 
     if !controls_enabled {
         controls_response.on_hover_text_at_pointer("query a song first");
@@ -653,6 +663,7 @@ pub mod constants {
     pub const PLAY_ICON: &str = "▶";
     pub const PAUSE_ICON: &str = "⏸";
     pub const STOP_ICON: &str = "⏹";
+    pub const EDIT_ICON: &str = egui_phosphor::PEN;
     pub const YOUTUBE_ICON: &str = egui_phosphor::YOUTUBE_LOGO;
     pub const SOUNDCLOUD_ICON: &str = egui_phosphor::SOUNDCLOUD_LOGO;
     pub const FOLDER_ICON: &str = egui_phosphor::FOLDER;
