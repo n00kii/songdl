@@ -1,9 +1,7 @@
 # songdl
 songdl is a simple youtube/soundcloud/(possibly more depending on your yt-dl) song downloader with mp3 tag utilities.
 
-
-https://github.com/n00kii/songdl/assets/57325298/617b19a3-2eb4-4e64-8352-a0e617beba56
-
+![songdl_x4xuFHmbPY](https://github.com/n00kii/songdl/assets/57325298/655120cc-b4a7-4747-8cf0-425e3f949973)
 
 ## dependencies
  - requires [ffmpeg](https://github.com/FFmpeg/FFmpeg) 
