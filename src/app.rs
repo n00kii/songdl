@@ -1,7 +1,7 @@
 use crate::{
     command::{
         convert_audio, download_audio, download_thumbnail, extract_metadata, extract_thumbnail,
-        set_command, write_cover_to_audio, DEFAULT_FFMPEG_COMMAND, DEFAULT_YT_DL_COMMAND,
+        set_command, DEFAULT_FFMPEG_COMMAND, DEFAULT_YT_DL_COMMAND,
     },
     iconst,
     interface::{self, load_fonts, load_style, InterfacePage},
